@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude 工具執行流程</title>
+<style>
+:root {
+  --bg:     #0d0d14;
+  --card:   #16162a;
+  --card2:  #1e1e35;
+  --border: #2a2a45;
+  --purple: #8b5cf6;
+  --blue:   #3b82f6;
+  --green:  #10b981;
+  --orange: #f59e0b;
+  --red:    #ef4444;
+  --text:   #e2e8f0;
+  --muted:  #64748b;
+  --muted2: #94a3b8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.header { text-align: center; padding: 32px 24px 12px; }
+.header h1 {
+  font-size: 28px; font-weight: 800;
+  background: linear-gradient(130deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header p { color: var(--muted2); font-size: 13px; margin-top: 5px; }
+
+/* ── API Key bar ── */
+.key-bar { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.key-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.key-dot.on  { background:var(--green); box-shadow:0 0 6px var(--green); }
+.key-dot.off { background:var(--muted); }
+.key-label { font-size:13px; color:var(--muted2); }
+.key-small-btn {
+  padding:4px 12px; border-radius:20px; border:1px solid var(--border);
+  background:var(--card); color:var(--muted2); font-size:12px; cursor:pointer; transition:all .2s;
+}
+.key-small-btn:hover { border-color:var(--purple); color:var(--text); }
+.key-input-row { display:none; align-items:center; gap:6px; margin-top:8px; width:100%; justify-content:center; }
+.key-input-row input {
+  width:320px; background:var(--bg); border:1.5px solid var(--border);
+  border-radius:8px; color:var(--text); padding:7px 12px; font-size:13px; font-family:monospace; outline:none;
+}
+.key-input-row input:focus { border-color:var(--purple); }
+.key-save-btn { padding:7px 16px; border:none; border-radius:8px; background:var(--purple); color:white; font-size:13px; font-weight:600; cursor:pointer; }
+.key-clear-btn { padding:7px 14px; border:1px solid #7a2a2a; border-radius:8px; background:transparent; color:var(--red); font-size:13px; cursor:pointer; }
+
+/* ── Usage bar ── */
+.usage-bar {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  flex-wrap: wrap; margin: 12px auto 0; max-width: 860px; padding: 0 24px;
+}
+.usage-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 14px; font-size: 12px; color: var(--muted2);
+}
+.usage-pill b { color: var(--text); }
+.usage-pill.cost b { color: var(--orange); }
+.usage-reset-btn {
+  padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+}
+.usage-reset-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* ── Card ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:18px; padding:24px; margin-bottom:14px; }
+.card-title { font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted2); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.dot-live { width:8px; height:8px; border-radius:50%; background:var(--purple); animation:blink 1.4s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+@keyframes popIn { from{opacity:0;transform:scale(.7)} to{opacity:1;transform:scale(1)} }
+
+/* ── Input / Button ── */
+.input-row { display:flex; gap:10px; margin-bottom:18px; }
+input[type="text"] { flex:1; background:var(--bg); border:1.5px solid var(--border); border-radius:10px; color:var(--text); padding:11px 14px; font-size:14px; outline:none; transition:border-color .2s; }
+input[type="text"]:focus { border-color:var(--purple); }
+.run-btn { padding:11px 22px; background:linear-gradient(135deg,#6d28d9,#4f46e5); border:none; border-radius:10px; color:white; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; transition:opacity .2s,transform .1s; }
+.run-btn:hover { opacity:.88; transform:translateY(-1px); }
+.run-btn:active { transform:translateY(0); }
+.run-btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+
+/* ── Status ── */
+.status { font-size:12px; color:var(--muted2); min-height:20px; margin-top:12px; padding:6px 12px; background:var(--card2); border-radius:8px; }
+
+/* ── Monitor wrapper ── */
+.monitor { padding:16px 24px 40px; max-width:900px; margin:0 auto; }
+
+/* ── Sequence Diagram ── */
+.tool-used-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; min-height:30px; }
+.tool-used-label { font-size:12px; color:var(--muted2); font-weight:600; flex-shrink:0; }
+.tool-chip { display:inline-flex; align-items:center; gap:5px; background:#1a1040; border:1px solid #3b2a7a; border-radius:20px; padding:3px 12px; font-size:12px; font-weight:700; color:#c4b5fd; font-family:monospace; animation:popIn .25s ease; }
+.tool-chip .chip-count { background:#3b2a7a; border-radius:10px; padding:0 6px; font-size:11px; color:#e2e8f0; }
+
+.seq-outer { display:flex; gap:14px; align-items:flex-start; }
+.seq-diag  { flex:1; min-width:0; padding-right:52px; }
+.seq-parts { display:flex; gap:6px; margin-bottom:2px; }
+.seq-part-box { flex:1; min-width:0; background:var(--card2); border:1.5px solid var(--border); border-radius:10px; padding:8px 4px; text-align:center; font-size:12px; font-weight:700; line-height:1.5; transition:all .3s ease; }
+.seq-part-tool { border-color:#3b2a7a; background:#1a1040; color:#c4b5fd; animation:popIn .3s ease; }
+.seq-body  { position:relative; min-height:80px; overflow:visible; }
+.seq-ll    { position:absolute; top:0; bottom:0; width:1.5px; background:repeating-linear-gradient(to bottom,#2a2a45 0,#2a2a45 8px,transparent 8px,transparent 16px); }
+.seq-row   { position:relative; height:56px; }
+.seq-a { position:absolute; top:27px; height:0; border-top:2px solid var(--purple); }
+.seq-a.ret { border-top-style:dashed; border-color:var(--green); }
+.seq-a.rr::after { content:''; position:absolute; right:-1px; top:-6px; border:6px solid transparent; border-left:8px solid var(--purple); }
+.seq-a.ret.rr::after { border-left-color:var(--green); }
+.seq-a.rl::after { content:''; position:absolute; left:-1px; top:-6px; border:6px solid transparent; border-right:8px solid var(--purple); }
+.seq-a.ret.rl::after { border-right-color:var(--green); }
+.seq-lbl { position:absolute; top:8px; font-size:12px; font-weight:700; white-space:nowrap; pointer-events:none; transform:translateX(-50%); }
+.seq-det { position:absolute; bottom:6px; font-size:11px; color:var(--muted2); white-space:nowrap; overflow:visible; max-width:200%; pointer-events:none; transform:translateX(-50%); font-family:monospace; }
+.seq-self { position:absolute; top:14px; border:1.5px solid var(--purple); border-radius:8px; background:#1a1040; padding:4px 12px; font-size:12px; font-weight:700; color:var(--purple); white-space:nowrap; transform:translateX(-50%); }
+.seq-q { position:absolute; right:-48px; top:13px; width:30px; height:30px; border-radius:50%; border:1.5px solid var(--purple); background:transparent; color:#a78bfa; font-size:14px; font-weight:700; cursor:pointer; transition:all .2s; }
+.seq-q:hover { background:var(--purple); color:white; }
+
+/* ── Explain panel ── */
+.explain-box { width:220px; flex-shrink:0; background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:14px; position:sticky; top:16px; }
+.explain-box-head { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--purple); margin-bottom:10px; }
+.explain-box-body { font-size:12px; color:var(--muted2); line-height:1.6; }
+.exp-row { display:flex; gap:0; margin-bottom:7px; align-items:baseline; flex-wrap:wrap; }
+.exp-code { font-family:monospace; font-size:11px; color:#c4b5fd; background:#1a1040; border:1px solid #3b2a7a; padding:1px 6px; border-radius:4px; white-space:nowrap; flex-shrink:0; margin-right:4px; }
+.exp-sep  { color:var(--muted); flex-shrink:0; margin-right:4px; font-size:11px; }
+.exp-text { color:var(--text); font-size:12px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Claude 工具執行流程</h1>
+  <p>視覺化 Claude 如何呼叫工具、逐步完成任務</p>
+  <div class="key-bar">
+    <span class="key-dot off" id="keyDot"></span>
+    <span class="key-label" id="keyLabel">API Key 未設定（使用 Mock 模式）</span>
+    <button class="key-small-btn" onclick="toggleKeyInput()">🔑 設定 Key</button>
+  </div>
+  <div class="key-input-row" id="keyInputRow">
+    <input type="password" id="keyField" placeholder="sk-ant-api03-..." autocomplete="off">
+    <button class="key-save-btn" onclick="saveKey()">儲存</button>
+    <button class="key-clear-btn" onclick="clearKey()">清除</button>
+  </div>
+</div>
+
+<!-- ── Usage bar ── -->
+<div class="usage-bar" id="usageBar">
+  <div class="usage-pill">模型 <b>claude-haiku-4-5</b></div>
+  <div class="usage-pill">呼叫 <b id="uCalls">0</b> 次</div>
+  <div class="usage-pill">輸入 <b id="uIn">0</b> tokens</div>
+  <div class="usage-pill">輸出 <b id="uOut">0</b> tokens</div>
+  <div class="usage-pill cost">本次費用 <b id="uCost">$0.0000</b></div>
+  <button class="usage-reset-btn" onclick="resetUsage()">↺ 重置</button>
+</div>
+
+<!-- ── Main Monitor ── -->
+<div class="monitor">
+  <div class="card">
+    <div class="card-title"><span class="dot-live"></span> Claude 工具執行流程</div>
+    <div class="input-row">
+      <input type="text" id="taskInput" value="幫我找程式碼裡的 bug" placeholder="輸入任何任務，Claude 會決定要用哪些工具...">
+      <button class="run-btn" id="btn2" onclick="runFlow()">▶ 執行</button>
+    </div>
+    <div class="seq-outer">
+      <div class="seq-diag">
+        <div class="seq-parts" id="seqParts">
+          <div class="seq-part-box">👤<br>使用者</div>
+          <div class="seq-part-box">🤖<br>Claude</div>
+        </div>
+        <div class="seq-body" id="seqBody"></div>
+      </div>
+      <div class="explain-box">
+        <div class="explain-box-head">💡 步驟說明</div>
+        <div class="explain-box-body" id="explainBody">點擊流程旁的「？」按鈕，用白話文解釋那個步驟在做什麼</div>
+      </div>
+    </div>
+    <div class="status" id="s2">輸入任務後按執行</div>
+  </div>
+</div>
+
+<script>
+/* ═══ API Key ═══ */
+function getKey() { return localStorage.getItem('claude_api_key') || ''; }
+function updateKeyUI() {
+  const k = getKey();
+  document.getElementById('keyDot').className = k ? 'key-dot on' : 'key-dot off';
+  document.getElementById('keyLabel').textContent = k ? 'API Key 已設定（真實模式）' : 'API Key 未設定（使用 Mock 模式）';
+}
+function toggleKeyInput() {
+  const row = document.getElementById('keyInputRow');
+  const showing = row.style.display === 'flex';
+  row.style.display = showing ? 'none' : 'flex';
+  if (!showing) { document.getElementById('keyField').value = getKey(); document.getElementById('keyField').focus(); }
+}
+function saveKey() {
+  const v = document.getElementById('keyField').value.trim();
+  if (v) { localStorage.setItem('claude_api_key', v); updateKeyUI(); }
+  document.getElementById('keyInputRow').style.display = 'none';
+}
+function clearKey() {
+  localStorage.removeItem('claude_api_key'); updateKeyUI();
+  document.getElementById('keyInputRow').style.display = 'none';
+}
+
+/* ═══ Usage bar ═══ */
+const PRICE_IN  = 0.80 / 1e6;  // $0.80 / 1M input tokens  (Haiku 4.5 概估)
+const PRICE_OUT = 4.00 / 1e6;  // $4.00 / 1M output tokens
+
+async function fetchUsage() {
+  try {
+    const r = await fetch('/api/usage');
+    const d = await r.json();
+    document.getElementById('uCalls').textContent = d.calls;
+    document.getElementById('uIn').textContent    = d.input_tokens.toLocaleString();
+    document.getElementById('uOut').textContent   = d.output_tokens.toLocaleString();
+    const cost = d.input_tokens * PRICE_IN + d.output_tokens * PRICE_OUT;
+    document.getElementById('uCost').textContent  = '$' + cost.toFixed(4);
+  } catch(_) {}
+}
+async function resetUsage() {
+  await fetch('/api/usage/reset', { method: 'POST' });
+  fetchUsage();
+}
+
+/* ═══ Sequence Diagram ═══ */
+const TOOL_META = {
+  bash:        { icon: '💻', label: 'bash' },
+  read_file:   { icon: '📖', label: 'read_file' },
+  search_code: { icon: '🔍', label: 'search_code' },
+  web_fetch:   { icon: '🌐', label: 'web_fetch' },
+};
+let PARTS = ['user', 'claude'];
+let seqY = 0, pendingTool = null, flowRunning = false;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function getPX() {
+  const n = PARTS.length, px = {};
+  PARTS.forEach((p, i) => { px[p] = (i + 0.5) / n * 100; });
+  return px;
+}
+function drawLifelines() {
+  const PX = getPX(), body = document.getElementById('seqBody');
+  body.querySelectorAll('.seq-ll').forEach(el => el.remove());
+  PARTS.forEach(p => {
+    const ll = document.createElement('div');
+    ll.className = 'seq-ll'; ll.style.left = PX[p] + '%';
+    body.appendChild(ll);
+  });
+}
+function repositionRows() {
+  const PX = getPX();
+  document.getElementById('seqBody').querySelectorAll('.seq-row[data-from]').forEach(row => {
+    const from = row.dataset.from, to = row.dataset.to;
+    if (from === to) {
+      const box = row.querySelector('.seq-self');
+      if (box) box.style.left = (PX[from] ?? 50) + '%';
+    } else {
+      const x1 = PX[from] ?? 25, x2 = PX[to] ?? 75, midX = ((x1+x2)/2)+'%';
+      const arrow = row.querySelector('.seq-a');
+      if (arrow) { arrow.style.left = Math.min(x1,x2)+'%'; arrow.style.width = Math.abs(x2-x1)+'%'; }
+      ['.seq-lbl','.seq-det'].forEach(s => { const el=row.querySelector(s); if(el) el.style.left=midX; });
+    }
+  });
+}
+function addParticipant(name) {
+  if (PARTS.includes(name)) return;
+  PARTS.push(name);
+  const meta = TOOL_META[name] || { icon: '🔧', label: name };
+  const box = document.createElement('div');
+  box.className = 'seq-part-box seq-part-tool';
+  box.innerHTML = `${meta.icon}<br>${meta.label}`;
+  document.getElementById('seqParts').appendChild(box);
+  drawLifelines(); repositionRows();
+}
+function clearSeq() {
+  document.getElementById('seqBody').querySelectorAll('.seq-row').forEach(r => r.remove());
+  seqY = 0;
+  document.getElementById('seqBody').style.height = '80px';
+  PARTS = ['user', 'claude'];
+  document.getElementById('seqParts').querySelectorAll('.seq-part-tool').forEach(el => el.remove());
+  drawLifelines();
+}
+function addSeqRow(from, to, label, detail, isRet) {
+  const PX = getPX(), body = document.getElementById('seqBody');
+  const row = document.createElement('div');
+  row.className = 'seq-row';
+  row.dataset.from = from; row.dataset.to = to;
+  row.style.cssText = `position:absolute; left:0; right:0; height:60px; top:${seqY}px;`;
+
+  if (from === to) {
+    const box = document.createElement('div');
+    box.className = 'seq-self'; box.style.left = (PX[from] ?? 50) + '%';
+    box.textContent = label; row.appendChild(box);
+  } else {
+    const x1 = PX[from] ?? 25, x2 = PX[to] ?? 75;
+    const goRight = x2 > x1;
+    const color = isRet ? 'var(--green)' : 'var(--purple)';
+    const midX = ((x1+x2)/2) + '%';
+
+    const a = document.createElement('div');
+    a.className = 'seq-a' + (isRet?' ret':'') + (goRight?' rr':' rl');
+    a.style.cssText = `left:${Math.min(x1,x2)}%; width:${Math.abs(x2-x1)}%;`;
+    row.appendChild(a);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'seq-lbl'; lbl.style.cssText = `left:${midX}; color:${color};`;
+    lbl.textContent = label; row.appendChild(lbl);
+
+    if (detail) {
+      const det = document.createElement('div');
+      det.className = 'seq-det'; det.style.left = midX;
+      det.textContent = detail; row.appendChild(det);
+    }
+
+    const toolName = (!isRet && to !== 'user' && to !== 'claude') ? to : null;
+    const btn = document.createElement('button');
+    btn.className = 'seq-q'; btn.textContent = '？';
+    btn.onclick = () => explainStep(label, detail || label, toolName);
+    row.appendChild(btn);
+  }
+
+  row.style.opacity = '0'; row.style.transition = 'opacity 0.3s ease';
+  body.appendChild(row);
+  requestAnimationFrame(() => { row.style.opacity = '1'; });
+  seqY += 60; body.style.height = (seqY + 10) + 'px';
+}
+
+async function explainStep(label, detail, toolName) {
+  const box = document.getElementById('explainBody');
+  box.textContent = '⟳ 查詢中...';
+  const apiKey = getKey();
+  if (!apiKey) { box.textContent = '需要設定 API Key 才能查詢說明'; return; }
+  try {
+    const r = await fetch('/api/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ label, detail, toolName: toolName || null })
+    });
+    const d = await r.json();
+    const lines = d.explanation.split('\n').map(l => l.trim()).filter(Boolean);
+    let html = '';
+    for (const line of lines) {
+      const sep = line.indexOf('：');
+      if (sep > 0) {
+        html += `<div class="exp-row"><span class="exp-code">${line.slice(0,sep)}</span><span class="exp-sep">：</span><span class="exp-text">${line.slice(sep+1)}</span></div>`;
+      } else {
+        html += `<div class="exp-row"><span class="exp-text">${line}</span></div>`;
+      }
+    }
+    box.innerHTML = html;
+    fetchUsage(); // refresh after ? button call
+  } catch(e) { box.textContent = '查詢失敗：' + e.message; }
+}
+
+function seqFromEvent(ev) {
+  if (!ev) return;
+  if (ev.title === '接收輸入')       addSeqRow('user',     'claude',   '送出任務', ev.desc, false);
+  else if (ev.title === '理解意圖')  addSeqRow('claude',   'claude',   '思考中',   '',      false);
+  else if (ev.tool) {
+    pendingTool = ev;
+    addParticipant(ev.tool);
+    addSeqRow('claude', ev.tool, ev.title, ev.desc, false);
+  } else if (ev.title === '生成最終回答') addSeqRow('claude', 'user', '回傳答案', ev.desc, true);
+}
+
+async function runFlow() {
+  if (flowRunning) return;
+  flowRunning = true;
+  const sEl = document.getElementById('s2');
+  document.getElementById('btn2').disabled = true;
+  clearSeq(); pendingTool = null;
+
+  const apiKey = getKey();
+  const task   = document.getElementById('taskInput').value.trim();
+  if (!task) { flowRunning = false; document.getElementById('btn2').disabled = false; return; }
+
+  if (apiKey) {
+    sEl.textContent = '⟳ 連線中...';
+    try {
+      const resp = await fetch('/api/toolflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        body: JSON.stringify({ task })
+      });
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'error') { sEl.textContent = '❌ ' + ev.message; break; }
+          if (ev.type === 'node')  { seqFromEvent(ev); sEl.textContent = `⟳ ${ev.title}...`; }
+          if (ev.type === 'node_done' && pendingTool) {
+            addSeqRow(pendingTool.tool, 'claude', '返回結果', '', true);
+            pendingTool = null;
+          }
+          if (ev.type === 'done') {
+            sEl.textContent = '✓ 完成（真實 Claude API 呼叫）';
+            fetchUsage();
+          }
+        }
+      }
+    } catch(e) { sEl.textContent = '❌ ' + e.message; }
+    document.getElementById('btn2').disabled = false;
+    flowRunning = false;
+    return;
+  }
+
+  // ── Mock mode ──
+  const mockFlows = [
+    [
+      { title:'接收輸入', desc:'「幫我找程式碼裡的 bug」', tool:null },
+      { title:'理解意圖', desc:'', tool:null },
+      { title:'讀取檔案', desc:'src/main.py', tool:'read_file' },
+      { title:'搜尋錯誤', desc:'grep -n NameError', tool:'bash' },
+      { title:'生成最終回答', desc:'找到第 42 行拼字錯誤', tool:null },
+    ],
+    [
+      { title:'接收輸入', desc:'「整理 Downloads 資料夾」', tool:null },
+      { title:'理解意圖', desc:'', tool:null },
+      { title:'列出檔案', desc:'ls ~/Downloads/', tool:'bash' },
+      { title:'建立分類資料夾', desc:'mkdir 文件 圖片 壓縮', tool:'bash' },
+      { title:'移動檔案', desc:'mv *.pdf 文件/', tool:'bash' },
+      { title:'生成最終回答', desc:'共整理 47 個檔案', tool:null },
+    ],
+    [
+      { title:'接收輸入', desc:'「搜尋並摘要文章」', tool:null },
+      { title:'理解意圖', desc:'', tool:null },
+      { title:'搜尋網頁', desc:'keyword query', tool:'web_fetch' },
+      { title:'抓取頁面', desc:'https://example.com', tool:'web_fetch' },
+      { title:'生成最終回答', desc:'300字摘要完成', tool:null },
+    ]
+  ];
+  const idx = task.includes('整理') ? 1 : (task.includes('搜尋') || task.includes('網頁')) ? 2 : 0;
+  for (const n of mockFlows[idx]) {
+    seqFromEvent(n); sEl.textContent = `⟳ ${n.title}...`;
+    await sleep(700);
+    if (n.tool) { addSeqRow(n.tool, 'claude', '返回結果', '', true); await sleep(400); }
+  }
+  sEl.textContent = '✓ 完成（Mock 模式）';
+  document.getElementById('btn2').disabled = false;
+  flowRunning = false;
+}
+
+/* ═══ Init ═══ */
+document.addEventListener('DOMContentLoaded', () => {
+  updateKeyUI();
+  fetchUsage();
+  drawLifelines();
+});
+</script>
+</body>
+</html>
