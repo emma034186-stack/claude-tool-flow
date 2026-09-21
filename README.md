@@ -2,8 +2,6 @@
 
 視覺化 Claude 如何呼叫工具、逐步完成任務。輸入任務後，即時看到 Claude 的決策流程——哪個工具被呼叫、順序為何、最終如何回答，並顯示本次 API token 用量與費用估算。
 
-![sequence diagram showing Claude calling tools](https://raw.githubusercontent.com/emma034186-stack/claude-tool-flow/main/public/index.html)
-
 ## 功能
 
 - **循序圖**：即時顯示使用者 → Claude → 工具 → 回傳的完整流程
